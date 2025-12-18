@@ -2,7 +2,7 @@
 This is just my vision of what version 5 should be like.
 
 # 5.0 what's new:
-- C++:
+## C++:
 - Added xDL lib
 - KittyMemory lib updated
 - Macros.h & Utils.cpp:
@@ -15,16 +15,16 @@ This is just my vision of what version 5 should be like.
 - Init() from Setup migrated to Menu for convenience
 - And64InlineHook and Substrate libs removed (replaced by Dobby)
 - get_device_api_level_inlines.h removed (replaced by JNI get_api_sdk)
--
-- Java:
+
+## Java:
 - CrashHandler.java updated:
 - - more debug info
 - - save path has been changed to: android/media/PACKAGE/files/LOG_DIR for all devices
 - - clear old crash logs (keep last 5)
 - Main.java minor changes
 - Menu.java minor changes
--
-- Project settings:
+
+## Project settings:
 - Updated to SDK 36
 - Upgraded gradle
 - Minor gradle settings changes
