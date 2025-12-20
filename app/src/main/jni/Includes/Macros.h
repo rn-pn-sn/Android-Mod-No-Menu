@@ -13,28 +13,30 @@ int MP_ASM = 1;
 int MP_ASM = 0;
 #endif
 
-/// classic hook (offset || sym)
+/// dobby hook (offset || sym)
 #define HOOK(lib, off_sym, ptr, orig) DobbyHookWrapper(lib, off_sym, (void*)(ptr), (void**)&(orig))
-/// hook (offset || sym) without original
+/// dobby hook (offset || sym) without original
 #define HOOK_NO_ORIG(lib, off_sym, ptr) DobbyHookWrapper(lib, off_sym, (void*)(ptr), nullptr)
 
 void DobbyHookWrapper(const char *lib, const char *relative, void* hook_function, void** original_function) {
     void *abs = getAbsoluteAddress(lib, relative);
-
     // LOGI(OBFUSCATE("Off: 0x%llx, Addr: 0x%llx"), offset, (uintptr_t) abs);
 
+    int res = -1;
     if (original_function != nullptr) {
-        DobbyHook(abs, (dobby_dummy_func_t)hook_function, (dobby_dummy_func_t*)original_function);
+        res = DobbyHook(abs, (dobby_dummy_func_t)hook_function, (dobby_dummy_func_t*)original_function);
+        if (res < 0) LOGE(OBFUSCATE("HOOK FAILED: %s"), relative);
     } else {
-        DobbyHook(abs, (dobby_dummy_func_t)hook_function, nullptr);
+        res = DobbyHook(abs, (dobby_dummy_func_t)hook_function, nullptr);
+        if (res < 0) LOGE(OBFUSCATE("HOOK_NO_ORIG FAILED: %s"), relative);
     }
 }
 
 
 
 
-/// (offset || sym) you can use instrument for logging, counting function calls, executing side code before the function is executed
-#define INST(lib, off_sym, name) DobbyInstrumentWrapper(lib, off_sym, name)
+/// (offset || sym) you can use dobby instrument for logging, counting function calls, executing side code before the function is executed
+#define INST(lib, off_sym, name, boolean) DobbyInstrumentWrapper(lib, off_sym, name, boolean)
 
 std::map<void*, const char*> detecting_functions;
 void Detector(void *address, DobbyRegisterContext *ctx) {
@@ -42,90 +44,149 @@ void Detector(void *address, DobbyRegisterContext *ctx) {
 }
 
 /// an example of a wrapper with a function for detecting execution
-void DobbyInstrumentWrapper(const char *lib, const char *relative, const char *name) {
+void DobbyInstrumentWrapper(const char *lib, const char *relative, const char *name, bool apply) {
     void *abs = getAbsoluteAddress(lib, relative);
-    detecting_functions[abs] = name;
-
-    // not access to the arguments "directly," as in a hook
-    // accessing the arguments requires low-level register reading
-    DobbyInstrument(abs, (dobby_instrument_callback_t)(Detector));
+    if(detecting_functions.count(abs)) {
+        if(!apply) {
+            int res = DobbyDestroy(abs);
+            if(res == 0) {
+                LOGI(OBFUSCATE("()x_x) %s >>>>>>>>>>>>> INST killed"), detecting_functions[abs]);
+                detecting_functions.erase(abs);
+            } else {
+                LOGE(OBFUSCATE("()4_4) %s >>>>>>>>>>>>> INST kill failed"), detecting_functions[abs]);
+            }
+        }
+    } else {
+        if(apply) {
+            // not access to the arguments "directly," as in a hook
+            // accessing the arguments requires low-level register reading
+            int res = DobbyInstrument(abs, (dobby_instrument_callback_t) (Detector));
+            if (res == 0) {
+                LOGI(OBFUSCATE("()-_-) %s >>>>>>>>>>>>> INST run"), name);
+                detecting_functions[abs] = name;
+            } else {
+                LOGE(OBFUSCATE("()7_7) %s >>>>>>>>>>>>> INST run failed"), detecting_functions[abs]);
+            }
+        }
+    }
 }
 
 
 
 
+struct DobbyPatchInfo {
+    void* address{};
+    std::vector<uint8_t> original_bytes;
+    std::vector<uint8_t> patch_bytes;
+    bool applied{};
+};
+
+std::map<std::string, DobbyPatchInfo> pExpress;
 /// Dobby-Kitty patch implementation
-std::map<std::string, std::tuple<void*, std::vector<uint8_t>, size_t>> pExpress;
-// For some reason, the Dobby doesn't work correctly with destroy, making restore memory impossible...
-// Need time to fix the Dobby itself, so now using Kitty implementation.
 void DobbyPatchWrapper(const char *libName, const char *relative, std::string data, bool apply) {
     std::string key = relative;
     auto it = pExpress.find(key);
     void* abs = nullptr;
-    std::vector<uint8_t> patch_code;
-    size_t patch_size = 0;
 
     if(it != pExpress.end()) {
-        abs = std::get<0>(it->second);
-        patch_code = std::get<1>(it->second);
-        patch_size = std::get<2>(it->second);
-         LOGI(OBFUSCATE("%s <- expressed"), relative);
+        abs = it->second.address;
+        // LOGI(OBFUSCATE("%s <- expressed"), relative);
     } else {
         abs = getAbsoluteAddress(libName, relative);
-        pExpress[key] = std::make_tuple(abs, patch_code, patch_size);
-         LOGI(OBFUSCATE("expressing %s -> new abs: 0x%llx"), relative, abs);
-    }
+        if (!abs) {
+            LOGE(OBFUSCATE("Failed to get absolute address for %s"), relative);
+            return;
+        }
 
-    if(apply) {
-        if(patch_code.empty()) {
-            std::string asm_data = data;
-            if (KittyUtils::String::ValidateHex(data)) {
-                patch_size = data.length() / 2;
-                patch_code.resize(patch_size);
-                KittyUtils::dataFromHex(data, patch_code.data());
-                 LOGI(OBFUSCATE("expressing %s -> new hex patch: %llx, %zu"), relative, patch_code.data(), patch_size);
+        DobbyPatchInfo info;
+        info.address = abs;
+        info.applied = false;
+
+        std::string asm_data = data;
+        if (KittyUtils::String::ValidateHex(data)) {
+            size_t patch_size = data.length() / 2;
+            info.patch_bytes.resize(patch_size);
+            KittyUtils::dataFromHex(data, info.patch_bytes.data());
+        } else {
+            ks_engine *ks = nullptr;
+            ks_err err = (MP_ASM == 1) ? ks_open(KS_ARCH_ARM64, KS_MODE_LITTLE_ENDIAN, &ks)
+                                       : ks_open(KS_ARCH_ARM, KS_MODE_LITTLE_ENDIAN, &ks);
+
+            if (err != KS_ERR_OK) {
+                KITTY_LOGE(OBFUSCATE("ks_open failed: %s"), ks_strerror(err));
+                return;
+            }
+
+            unsigned char *insn_bytes = nullptr;
+            size_t insn_size = 0, insn_count = 0;
+
+            if (ks_asm(ks, asm_data.c_str(), 0, &insn_bytes, &insn_size, &insn_count) == 0 &&
+                insn_bytes != nullptr && insn_size > 0) {
+                info.patch_bytes.resize(insn_size);
+                memcpy(info.patch_bytes.data(), insn_bytes, insn_size);
             } else {
-                ks_engine *ks = nullptr;
-                ks_err err = (MP_ASM == 1) ? ks_open(KS_ARCH_ARM64, KS_MODE_LITTLE_ENDIAN, &ks)
-                                           : ks_open(KS_ARCH_ARM, KS_MODE_LITTLE_ENDIAN, &ks);
-
-                if (err != KS_ERR_OK) {
-                    KITTY_LOGE(OBFUSCATE("ks_open failed: %s"), ks_strerror(err));
-                    return;
-                }
-
-                unsigned char *insn_bytes = nullptr;
-                size_t insn_size = 0, insn_count = 0;
-
-                if (ks_asm(ks, asm_data.c_str(), 0, &insn_bytes, &insn_size, &insn_count) == 0 &&
-                    insn_bytes != nullptr && insn_size > 0) {
-                    patch_size = insn_size;
-                    patch_code.resize(patch_size);
-                    memcpy(patch_code.data(), insn_bytes, patch_size);
-                }
-
+                KITTY_LOGE(OBFUSCATE("ks_asm failed for %s"), relative);
                 if (insn_bytes) ks_free(insn_bytes);
                 ks_close(ks);
-
-                 LOGI(OBFUSCATE("expressing %s -> new asm patch: %llx, %zu"), relative, patch_code.data(), patch_size);
+                return;
             }
-            pExpress[key] = std::make_tuple(abs, patch_code, patch_size);
+
+            if (insn_bytes) ks_free(insn_bytes);
+            ks_close(ks);
         }
 
-        if(!patch_code.empty()) {
-            DobbyCodePatch(abs, patch_code.data(), patch_size);
-             LOGI(OBFUSCATE("New patch created: %s"), relative);
+        info.original_bytes.resize(info.patch_bytes.size());
+        memcpy(info.original_bytes.data(), info.address, info.patch_bytes.size());
+
+        pExpress[key] = info;
+        // LOGI(OBFUSCATE("expressing %s -> new abs: 0x%llx, patch size: %zu"), relative, info.address, info.patch_bytes.size());
+    }
+
+    DobbyPatchInfo& info = pExpress[key];
+
+    if(apply) {
+        if(!info.applied) {
+            // LOGI(OBFUSCATE("Applying patch to %s at 0x%llx, size: %zu"), relative, info.address, info.patch_bytes.size());
+
+            int res = DobbyCodePatch(info.address, info.patch_bytes.data(), info.patch_bytes.size());
+            if(res == 0) {
+                info.applied = true;
+                // LOGI(OBFUSCATE("New patch created: %s"), relative);
+            } else {
+                LOGE(OBFUSCATE("Failed to create patch: %s, error: %d"), relative, res);
+            }
         } else {
-            LOGE(OBFUSCATE("Failed to create patch: %s"), relative);
+            // LOGI(OBFUSCATE("Patch already applied: %s"), relative);
         }
     } else {
-        DobbyDestroy(abs);
-         LOGI(OBFUSCATE("Patch removed: %s"), relative);
+        if(info.applied) {
+            // LOGI(OBFUSCATE("Restoring original bytes for %s at 0x%llx, size: %zu"), relative, info.address, info.original_bytes.size());
+
+            int res = DobbyCodePatch(info.address, info.original_bytes.data(), info.original_bytes.size());
+            if(res == 0) {
+                info.applied = false;
+                // LOGI(OBFUSCATE("Patch removed: %s"), relative);
+            } else {
+                LOGE(OBFUSCATE("Failed to restore patch: %s, error: %d"), relative, res);
+            }
+        } else {
+            // LOGI(OBFUSCATE("No need restore: %s"), relative);
+        }
     }
 }
 
-/// KittyMemory patch implementation
+/// dobby patch (offset || sym) (hex || asm)
+#define PATCH(lib, off_sym, hex_asm) DobbyPatchWrapper(lib, off_sym, hex_asm, true)
+/// dobby patch remove (offset || sym) (hex || asm)
+#define RESTORE(lib, off_sym) DobbyPatchWrapper(lib, off_sym, "", false)
+/// dobby patch switch (offset || sym) (hex || asm)
+#define PATCH_SWITCH(lib, off_sym, hex_asm, boolean) DobbyPatchWrapper(lib, off_sym, hex_asm, boolean)
+
+
+
+/* use this option if for some reason the Dobby doesn't suit you
 std::map<const char*, MemoryPatch> memoryPatches;
+/// KittyMemory patch implementation
 void KittyPatchWrapper(const char *libName, const char *relative, std::string data, bool apply) {
     auto it = memoryPatches.find(relative);
 
@@ -175,8 +236,8 @@ void KittyPatchWrapper(const char *libName, const char *relative, std::string da
 #define PATCH(lib, off_sym, hex_asm) KittyPatchWrapper(lib, off_sym, hex_asm, true)
 /// patch original restore (offset || sym) (hex || asm)
 #define RESTORE(lib, off_sym) KittyPatchWrapper(lib, off_sym, "", false)
-
 /// patch switch (offset || sym) (hex || asm)
 #define PATCH_SWITCH(lib, off_sym, hex_asm, boolean) KittyPatchWrapper(lib, off_sym, hex_asm, boolean)
+*/
 
 #endif //ANDROID_MOD_MENU_MACROS_H

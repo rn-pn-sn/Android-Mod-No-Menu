@@ -100,12 +100,16 @@ void Changes(JNIEnv *env, jclass clazz, jobject obj, jint featNum, jstring featN
         case 0:
             // offset, hex
             PATCH_SWITCH(targetLibName, "0x1079728", "C0 03 5F D6", boolean);
-            // The patch switch has been returned and reworked... so it should work stably
+            // The patch switch has been returned and reworked:
+            // - (active) Dobby-Kitty implementation
+            // - reworked KittyMemory implementation
+            //
             // if you encounter any problems:
-            // - uncommiting logging for detailed checking of your functions;
+            // - switch to Kitty implementation (uncomment code in Macros.h)
+            // - uncommiting logging for detailed debug
             // - special attention to the preferences -> this is the only source of this problem in the past that I have noticed:
             // -- try rename the preferences file;
-            // -- for a stable and more flexible save settings, recommend using own system with XML/JSON files.
+            // -- for a maximum stable and flexible save settings, recommend using own system with XML/JSON files.
 
             // alt possibles usage variants:
             // symbol, hex
@@ -150,6 +154,17 @@ void Changes(JNIEnv *env, jclass clazz, jobject obj, jint featNum, jstring featN
         case 3:
             coinsMul = value;
             break;
+        case 5:
+            // you can use this for things as detect log, counting function calls, executing side code before the function is executed
+            // now instrument wrapper implemented for detecting execution in logcat
+            INST(targetLibName, OBFUSCATE("0x235630"), OBFUSCATE("AnyNameForDetect2"), boolean);
+
+            if(boolean) {
+                INST(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("AnyNameForDetect3"), true);
+            } else {
+                INST(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("AnyNameForDetect3"), false);
+            }
+            break;
         default:
             break;
     }
@@ -176,7 +191,7 @@ void Update(void *instance) {
     return old_AddScore(instance, score * scoreMul);
  }
 */
-// === This function was completely replaced with super-macro `install_hook_name` from dobby.h ===
+// === This function was completely replaced with `install_hook_name` from dobby.h ===
 // (base name, return type, ... args)
 install_hook_name(AddScore, void *, void *instance, int score) {
     // default any actions
@@ -204,13 +219,13 @@ void hack_thread() {
 #if defined(__aarch64__)
     //Il2Cpp: Use RVA offset
     StartInvcibility = (void (*)(void *, float)) getAbsoluteAddress(targetLibName, OBFUSCATE("0x107A3BC"));
-    // StartInvcibility = (void (*)(void *, float)) getAbsoluteAddress(targetLibName, "_characterPlayer_Update"));
+    StartInvcibility = (void (*)(void *, float)) getAbsoluteAddress(targetLibName, OBFUSCATE("_characterPlayer_Update"));
 
     HOOK(targetLibName, OBFUSCATE("0x107A2FC"), AddCoins, old_AddCoins);
 
     // HOOK(targetLibName, OBFUSCATE("0x107A2E0"), AddScore, old_AddScore);
     // === This function was completely replaced with super-macro `install_hook_name` from dobby.h ===
-    // don't forget set address for hook super-macro:
+    // don't forget set address for install_hook:
     install_hook_AddScore(getAbsoluteAddress(targetLibName,OBFUSCATE("0x107A2E0")));
 
     HOOK(targetLibName, OBFUSCATE("0x1078C44"), Update, old_Update);
@@ -221,11 +236,7 @@ void hack_thread() {
 
     //PATCH(targetLibName, OBFUSCATE("0x10709AC"), "E05F40B2C0035FD6");
 
-    // you can use this for things as detect log, counting function calls, executing side code before the function is executed
-    // now instrument wrapper implemented for detecting execution
-    INST(targetLibName, OBFUSCATE("0x23558C"), OBFUSCATE("AnyNameForDetect"));
-    INST(targetLibName, OBFUSCATE("0x235630"), OBFUSCATE("AnyNameForDetect2"));
-    INST(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("AnyNameForDetect3"));
+    INST(targetLibName, OBFUSCATE("0x23558C"), OBFUSCATE("AnyNameForDetect"), true);
 
     // LOGI("Test SYM: 0x%llx", (uintptr_t)getAbsoluteAddress(targetLibName, "il2cpp_init"));
 #elif defined(__arm__)
