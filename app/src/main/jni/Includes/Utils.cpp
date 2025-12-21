@@ -21,7 +21,7 @@ uintptr_t getLibraryAddress(const char *libraryName) {
     return lib_links[libraryName];
 }
 
-void* getSymAddress(const char *libraryName, const char *SymName) {
+void* getSymAddress(const char *libraryName, const char *SymName, bool relative) {
     xdl_info_t info;
     void *handle = xdl_open(libraryName, XDL_DEFAULT);
     if (handle == nullptr) {
@@ -42,7 +42,10 @@ void* getSymAddress(const char *libraryName, const char *SymName) {
     }
 
     xdl_close(handle);
-    return symbol_addr;
+
+    if (relative) {
+        return (void*)((uintptr_t) symbol_addr - (uintptr_t) info.dli_fbase);
+    } else return symbol_addr;
 }
 
 void* getAbsAddress(const char *libraryName, uintptr_t relativeAddr) {
@@ -53,13 +56,24 @@ void* getAbsAddress(const char *libraryName, uintptr_t relativeAddr) {
     return (void*)(lib_links[libraryName] + relativeAddr);
 }
 
+void* getRelativeAddress(const char *libraryName, const char *rootOffset, const char *addOffset) {
+    uintptr_t offset = str2offset(rootOffset);
+    uintptr_t offset2 = str2offset(addOffset);
+
+    if(offset != 0) {
+        return (void*)(offset + offset2);
+    } else {
+        return (void*)((uintptr_t) getSymAddress(libraryName, rootOffset, true));
+    }
+}
+
 void* getAbsoluteAddress(const char *libraryName, const char *relative) {
     uintptr_t offset = str2offset(relative);
 
     if(offset != 0) {
         return getAbsAddress(libraryName, offset);
     } else {
-        return getSymAddress(libraryName, relative);
+        return getSymAddress(libraryName, relative, false);
         // ElfScanner is still available... you can use it for advanced searches
     }
 }

@@ -14,9 +14,9 @@ int MP_ASM = 0;
 #endif
 
 /// dobby hook (offset || sym)
-#define HOOK(lib, off_sym, ptr, orig) DobbyHookWrapper(lib, off_sym, (void*)(ptr), (void**)&(orig))
+#define HOOK(lib, off_sym, ptr, orig) DobbyHookWrapper(lib, OBFUSCATE(off_sym), (void*)(ptr), (void**)&(orig))
 /// dobby hook (offset || sym) without original
-#define HOOK_NO_ORIG(lib, off_sym, ptr) DobbyHookWrapper(lib, off_sym, (void*)(ptr), nullptr)
+#define HOOK_NO_ORIG(lib, off_sym, ptr) DobbyHookWrapper(lib, OBFUSCATE(off_sym), (void*)(ptr), nullptr)
 
 void DobbyHookWrapper(const char *lib, const char *relative, void* hook_function, void** original_function) {
     void *abs = getAbsoluteAddress(lib, relative);
@@ -36,7 +36,7 @@ void DobbyHookWrapper(const char *lib, const char *relative, void* hook_function
 
 
 /// (offset || sym) you can use dobby instrument for logging, counting function calls, executing side code before the function is executed
-#define INST(lib, off_sym, name, boolean) DobbyInstrumentWrapper(lib, off_sym, name, boolean)
+#define INST(lib, off_sym, name, boolean) DobbyInstrumentWrapper(lib, OBFUSCATE(off_sym), OBFUSCATE(name), boolean)
 
 std::map<void*, const char*> detecting_functions;
 void Detector(void *address, DobbyRegisterContext *ctx) {
@@ -176,11 +176,11 @@ void DobbyPatchWrapper(const char *libName, const char *relative, std::string da
 }
 
 /// dobby patch (offset || sym) (hex || asm)
-#define PATCH(lib, off_sym, hex_asm) DobbyPatchWrapper(lib, off_sym, hex_asm, true)
-/// dobby patch remove (offset || sym) (hex || asm)
-#define RESTORE(lib, off_sym) DobbyPatchWrapper(lib, off_sym, "", false)
+#define PATCH(lib, off_sym, hex_asm) DobbyPatchWrapper(lib, OBFUSCATE(off_sym), OBFUSCATE(hex_asm), true)
+/// dobby patch remove (offset || sym)
+#define RESTORE(lib, off_sym) DobbyPatchWrapper(lib, OBFUSCATE(off_sym), "", false)
 /// dobby patch switch (offset || sym) (hex || asm)
-#define PATCH_SWITCH(lib, off_sym, hex_asm, boolean) DobbyPatchWrapper(lib, off_sym, hex_asm, boolean)
+#define PATCH_SWITCH(lib, off_sym, hex_asm, boolean) DobbyPatchWrapper(lib, OBFUSCATE(off_sym), OBFUSCATE(hex_asm), boolean)
 
 
 
@@ -233,11 +233,24 @@ void KittyPatchWrapper(const char *libName, const char *relative, std::string da
 }
 
 /// classic patch (offset || sym) (hex || asm)
-#define PATCH(lib, off_sym, hex_asm) KittyPatchWrapper(lib, off_sym, hex_asm, true)
-/// patch original restore (offset || sym) (hex || asm)
-#define RESTORE(lib, off_sym) KittyPatchWrapper(lib, off_sym, "", false)
+#define PATCH(lib, off_sym, hex_asm) KittyPatchWrapper(lib, OBFUSCATE(off_sym), OBFUSCATE(hex_asm), true)
+/// patch original restore (offset || sym)
+#define RESTORE(lib, off_sym) KittyPatchWrapper(lib, OBFUSCATE(off_sym), "", false)
 /// patch switch (offset || sym) (hex || asm)
-#define PATCH_SWITCH(lib, off_sym, hex_asm, boolean) KittyPatchWrapper(lib, off_sym, hex_asm, boolean)
+#define PATCH_SWITCH(lib, off_sym, hex_asm, boolean) KittyPatchWrapper(lib, OBFUSCATE(off_sym), OBFUSCATE(hex_asm), boolean)
 */
+
+/// Relative patches allow you to speed up patch creation if you are sure that the offsets within methods rarely change
+void PatchRelativeOffset(const char *libName, const char *rootOffset, const char *addOffset, std::string data, bool apply) {
+    DobbyPatchWrapper(libName, (char *) getRelativeAddress(libName, rootOffset, addOffset), std::move(data), apply);
+    // KittyPatchWrapper(libName, (char *) getRelativeAddress(libName, rootOffset, addOffset), std::move(data), apply);
+}
+
+/// relative patch (offset || sym) (offset) (hex || asm)
+#define rPATCH(lib, root_off_sym, add_off, hex_asm) PatchRelativeOffset(lib, OBFUSCATE(root_off_sym), OBFUSCATE(add_off), OBFUSCATE(hex_asm), true)
+/// relative patch remove (offset || sym)
+#define rRESTORE(lib, root_off_sym, add_off) PatchRelativeOffset(lib, OBFUSCATE(root_off_sym), OBFUSCATE(add_off), "", false)
+/// relative patch switch (offset || sym) (offset) (hex || asm)
+#define rPATCH_SWITCH(lib, root_off_sym, add_off, hex_asm, boolean) PatchRelativeOffset(lib, OBFUSCATE(root_off_sym), OBFUSCATE(add_off), OBFUSCATE(hex_asm), boolean)
 
 #endif //ANDROID_MOD_MENU_MACROS_H

@@ -117,7 +117,7 @@ void Changes(JNIEnv *env, jclass clazz, jobject obj, jint featNum, jstring featN
             // offset, asm
             PATCH_SWITCH(targetLibName, "0x1079728", "ret", boolean);
             // symbol, asm
-            PATCH_SWITCH(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("ret"), boolean);
+            PATCH_SWITCH(targetLibName, "_example__sym", "ret", boolean);
 
             // asm allows you to avoid using hex code, as it is generated automatically from the instructions.
             // - this is the awesome option if you know what you're doing
@@ -126,23 +126,43 @@ void Changes(JNIEnv *env, jclass clazz, jobject obj, jint featNum, jstring featN
             // recommended insert ';' to separate statements, example: "mov x0, #1; ret"
             // recommended to test your instructions on https://armconverter.com or
             // https://shell-storm.org/online/Online-Assembler-and-Disassembler/
+
+
+            // Relative patches allow you to speed up patch creation if you are sure that the offsets within methods rarely change
+            // So, you only need to update the offset instruction for the function
+            // https://www.rapidtables.com/calc/math/hex-calculator.html <- use hex calculator to calculate the offset relative to the method
+            // ! This is an extremely unstable due to the hard offsets... don't forget to check the logs to identify outdated offsets
+            // offset, offset, hex
+            rPATCH_SWITCH(targetLibName, "0x1079728", "0x204", "C0 03 5F D6", boolean);
+            // sym, offset, hex
+            rPATCH_SWITCH(targetLibName, "_example__sym", "0xAC", "C0 03 5F D6", boolean);
+            // offset, offset, asm
+            rPATCH_SWITCH(targetLibName, "0x1079728", "0x204", "mov x0, #0xffffff; ret", boolean);
+            // sym, offset, asm
+            rPATCH_SWITCH(targetLibName, "_example__sym", "0xAC", "mov x0, #0xffffff; ret", boolean);
             break;
         case 4:
             if(boolean) {
                 // offset, hex
-                PATCH(targetLibName, OBFUSCATE("0x10709AC"), OBFUSCATE("E05F40B2 C0035FD6"));
+                PATCH(targetLibName, "0x10709AC", "E05F40B2 C0035FD6");
+                rPATCH(targetLibName, "0x107094D", "0x5F", "E05F40B2 C0035FD6");
 
                 // alt possibles usage variants:
                 // symbol, hex
-                PATCH(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("E0 5F 40 B2 C0 03 5F D6"));
+                PATCH(targetLibName, "_example__sym", "E0 5F 40 B2 C0 03 5F D6");
+                rPATCH(targetLibName, "_example__sym", "0x5F", "E0 5F 40 B2 C0 03 5F D6");
                 // offset, asm
-                PATCH(targetLibName, OBFUSCATE("0x10709AC"), OBFUSCATE("mov x0, #0xffffff; ret"));
+                PATCH(targetLibName, "0x10709AC", "mov x0, #0xffffff; ret");
+                rPATCH(targetLibName, "0x107094D", "0x5F", "mov x0, #0xffffff; ret");
                 // symbol, asm
-                PATCH(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("mov x0, #0xffffff; ret"));
+                PATCH(targetLibName, "_example__sym", "mov x0, #0xffffff; ret");
+                rPATCH(targetLibName, "_example__sym", "0x5F", "mov x0, #0xffffff; ret");
             } else {
-                RESTORE(targetLibName, OBFUSCATE("0x10709AC"));
+                RESTORE(targetLibName, "0x10709AC");
+                rRESTORE(targetLibName, "0x10709AC", "0x5F");
                 // or
-                RESTORE(targetLibName, OBFUSCATE("_example__sym"));
+                RESTORE(targetLibName, "_example__sym");
+                rRESTORE(targetLibName, "_example__sym", "0x5F");
             }
             break;
         case 1:
@@ -157,12 +177,12 @@ void Changes(JNIEnv *env, jclass clazz, jobject obj, jint featNum, jstring featN
         case 5:
             // you can use this for things as detect log, counting function calls, executing side code before the function is executed
             // now instrument wrapper implemented for detecting execution in logcat
-            INST(targetLibName, OBFUSCATE("0x235630"), OBFUSCATE("AnyNameForDetect2"), boolean);
+            INST(targetLibName, "0x235630", "AnyNameForDetect2", boolean);
 
             if(boolean) {
-                INST(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("AnyNameForDetect3"), true);
+                INST(targetLibName, "_example__sym", "AnyNameForDetect3", true);
             } else {
-                INST(targetLibName, OBFUSCATE("_example__sym"), OBFUSCATE("AnyNameForDetect3"), false);
+                INST(targetLibName, "_example__sym", "AnyNameForDetect3", false);
             }
             break;
         default:
@@ -221,24 +241,25 @@ void hack_thread() {
     StartInvcibility = (void (*)(void *, float)) getAbsoluteAddress(targetLibName, OBFUSCATE("0x107A3BC"));
     StartInvcibility = (void (*)(void *, float)) getAbsoluteAddress(targetLibName, OBFUSCATE("_characterPlayer_Update"));
 
-    HOOK(targetLibName, OBFUSCATE("0x107A2FC"), AddCoins, old_AddCoins);
+    HOOK(targetLibName, "0x107A2FC", AddCoins, old_AddCoins);
 
-    // HOOK(targetLibName, OBFUSCATE("0x107A2E0"), AddScore, old_AddScore);
+    // HOOK(targetLibName, "0x107A2E0", AddScore, old_AddScore);
     // === This function was completely replaced with super-macro `install_hook_name` from dobby.h ===
     // don't forget set address for install_hook:
+    // ! getAbsoluteAddress not have OBFUSCATE, so don't forget use his here
     install_hook_AddScore(getAbsoluteAddress(targetLibName,OBFUSCATE("0x107A2E0")));
 
-    HOOK(targetLibName, OBFUSCATE("0x1078C44"), Update, old_Update);
-    //HOOK(targetLibName, OBFUSCATE("0x1079728"), Kill, old_Kill);
-    //HOOK(targetLibName, OBFUSCATE("_example__sym"), Kill, old_Kill);
-    //HOOK_NO_ORIG("libFileC.so", OBFUSCATE("0x123456"), FunctionExample);
-    //HOOK_NO_ORIG("libFileC.so", OBFUSCATE("_example__sym"), FunctionExample);
+    HOOK(targetLibName, "0x1078C44", Update, old_Update);
+    //HOOK(targetLibName, "0x1079728", Kill, old_Kill);
+    //HOOK(targetLibName, "_example__sym", Kill, old_Kill);
+    //HOOK_NO_ORIG("libFileC.so", "0x123456", FunctionExample);
+    //HOOK_NO_ORIG("libFileC.so", "_example__sym", FunctionExample);
 
-    //PATCH(targetLibName, OBFUSCATE("0x10709AC"), "E05F40B2C0035FD6");
+    //PATCH(targetLibName, "0x10709AC", "E05F40B2C0035FD6");
 
-    INST(targetLibName, OBFUSCATE("0x23558C"), OBFUSCATE("AnyNameForDetect"), true);
+    INST(targetLibName, "0x23558C", "AnyNameForDetect", true);
 
-    // LOGI("Test SYM: 0x%llx", (uintptr_t)getAbsoluteAddress(targetLibName, "il2cpp_init"));
+    // LOGI(OBFUSCATE("Test SYM: 0x%llx"), (uintptr_t)getAbsoluteAddress(OBFUSCATE("libil2cpp.so"), OBFUSCATE("il2cpp_init")));
 #elif defined(__arm__)
     //Put your code here if you want the code to be compiled for armv7 only
 #endif
